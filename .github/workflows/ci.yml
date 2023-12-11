@@ -1,0 +1,111 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+    #paths:
+    #  - 'src/**'
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+jobs:
+  ci:
+    name: Continuos Integration
+    strategy:
+      matrix:
+        target:
+          - aarch64-linux
+          - aarch64-macos
+          - aarch64-windows
+          - x86_64-linux
+          - x86_64-windows
+        optimize:
+          - ReleaseSmall
+          - ReleaseFast
+          - ReleaseSafe
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: '0.17.0'
+
+      - name: Get source code
+        uses: actions/checkout@v7
+
+      - name: Lint
+        run: zig fmt --check --ast-check build.zig.zon build.zig src
+
+      - name: Build (${{ matrix.target }}-${{ matrix.optimize }})
+        run: |
+          case "${{ matrix.target }}" in
+            *-macos)
+              zig build -Ddynamic -Dtarget=${{ matrix.target }} -Doptimize=${{ matrix.optimize }} --prefix zig-out/${{ matrix.target }}-${{ matrix.optimize }}/mp3-cleaner
+              ;;
+            *)
+              zig build -Dtarget=${{ matrix.target }} -Doptimize=${{ matrix.optimize }} --prefix zig-out/${{ matrix.target }}-${{ matrix.optimize }}/mp3-cleaner
+              ;;
+            esac
+
+      - name: Tests (${{ matrix.optimize }})
+        run: zig build -Doptimize=${{ matrix.optimize }} --summary all test
+
+      #- name: Setup wasmtime
+      #  if: matrix.os == 'ubuntu-latest'
+      #  uses: bytecodealliance/actions/wasmtime/setup@v1
+
+      #- name: Test (WASM)
+      #  if: matrix.os == 'ubuntu-latest'
+      #  run: zig build -fwasmtime -Dtarget=wasm32-wasi --summary all test
+
+      - name: Package (${{ matrix.target }}-${{ matrix.optimize }})
+        run: |
+          case "${{ matrix.target }}" in
+            *-linux)
+              cd zig-out/${{ matrix.target }}-${{ matrix.optimize }}
+              tar -cvzf ../../mp3-cleaner-${{ github.ref_name }}-${{ matrix.target }}-${{ matrix.optimize }}.tar.gz mp3-cleaner
+              cd -
+              ;;
+            *)
+              cd zig-out/${{ matrix.target }}-${{ matrix.optimize }}
+              zip -r ../../mp3-cleaner-${{ github.ref_name }}-${{ matrix.target }}-${{ matrix.optimize }}.zip mp3-cleaner
+              cd -
+              ;;
+          esac
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: mp3-cleaner-${{ github.ref_name }}-${{ matrix.target }}-${{ matrix.optimize }}
+          path: ./mp3-cleaner-${{ github.ref_name }}-${{ matrix.target }}-${{ matrix.optimize }}.*
+          archive: false
+
+  release:
+    needs: ci
+    if: ${{ github.ref_type == 'tag' }}
+    permissions:
+      contents: write
+      packages: write
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+          skip-decompress: true
+          #pattern: mp3-cleaner-${{ github.ref_name }}-*
+          path: dist
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v3
+        with:
+          name: ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/*.tar.gz
+            dist/*.zip

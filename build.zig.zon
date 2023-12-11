@@ -1,0 +1,19 @@
+.{
+    .name = .mp3_cleaner,
+    .fingerprint = 0x6edc6aec3d6e7a42,
+    .minimum_zig_version = "0.17.0",
+    .version = "0.0.1",
+    .dependencies = .{
+        .ntz = .{
+            .url = "git+https://github.com/ntrrg/ntz?ref=v0.0.3#01b84fb1f5aa38ac3306673dcb8240b6fa6c928d",
+            .hash = "ntz-0.0.3-OvEH1v-CBADpjiErSfrD_VaEhM9M9ewZFtDuNDQqCmD9",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "CONTRIBUTORS",
+        "LICENSE",
+    },
+}

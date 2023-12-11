@@ -1,0 +1,37 @@
+#!/bin/sh
+
+set -eu
+
+ENV_FILE="${ENV_FILE:-".env"}"
+
+CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-"podman"}"
+CONTAINER_IMAGE="${CONTAINER_IMAGE:-"kcov/kcov"}"
+CONTAINER_TAG="${CONTAINER_TAG:-"latest"}"
+CONTAINER_USER="${CONTAINER_USER:-"$(id -u)"}"
+
+main() {
+	local _cmd="
+		$CONTAINER_RUNTIME run --rm -it --network host
+			-v $PWD:$PWD -w $PWD
+	"
+
+	if [ -f "$ENV_FILE" ]; then
+		_cmd="$_cmd --env-file '$ENV_FILE'"
+	fi
+
+	local _runtime="$("$CONTAINER_RUNTIME" --version | cut -F 1)"
+
+	case "$_runtime" in
+	"Docker")
+		_cmd="$_cmd -u $CONTAINER_USER"
+		;;
+
+	"podman")
+		_cmd="$_cmd --security-opt seccomp=unconfined"
+		;;
+	esac
+
+	exec $_cmd "$CONTAINER_IMAGE:$CONTAINER_TAG" kcov "$@"
+}
+
+main $@

@@ -1,0 +1,53 @@
+name: CI
+on:
+  push:
+    branches:
+      - main
+    #paths:
+    #  - 'src/**'
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+jobs:
+  ci:
+    name: Continuos Integration
+    strategy:
+      matrix:
+        target:
+          - aarch64-linux
+          - aarch64-macos
+          - aarch64-windows
+          - x86_64-linux
+          - x86_64-windows
+        optimize:
+          - ReleaseSmall
+          - ReleaseFast
+          - ReleaseSafe
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Zig
+        uses: https://codeberg.org/mlugg/setup-zig@v2
+        with:
+          version: '0.17.0'
+
+      - name: Get source code
+        uses: actions/checkout@v2
+
+      - name: Lint
+        run: zig fmt --check --ast-check build.zig.zon build.zig src
+
+      - name: Build (${{ matrix.target }}-${{ matrix.optimize }})
+        run: |
+          case "${{ matrix.target }}" in
+            *-macos)
+              zig build -Ddynamic -Dtarget=${{ matrix.target }} -Doptimize=${{ matrix.optimize }} --prefix zig-out/${{ matrix.target }}-${{ matrix.optimize }}
+              ;;
+            *)
+              zig build -Dtarget=${{ matrix.target }} -Doptimize=${{ matrix.optimize }} --prefix zig-out/${{ matrix.target }}-${{ matrix.optimize }}
+              ;;
+            esac
+
+      - name: Tests (${{ matrix.optimize }})
+        run: zig build -Doptimize=${{ matrix.optimize }} --summary all test
