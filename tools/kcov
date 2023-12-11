@@ -1,0 +1,6 @@
+#!/bin/sh
+
+exec podman run --rm -it \
+	-v "$PWD:$PWD" -w "$PWD" \
+	--security-opt seccomp=unconfined \
+		kcov/kcov kcov "$@"
