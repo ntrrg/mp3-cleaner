@@ -1,0 +1,4 @@
+# Zig
+coverage/
+zig-cache/
+zig-out/
