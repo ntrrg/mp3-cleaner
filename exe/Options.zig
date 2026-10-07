@@ -17,7 +17,7 @@ const bytes = types.bytes;
 const ui = ntz.ui;
 const cli = ui.cli;
 
-const cleaner = @import("cleaner/root.zig");
+const cleaner = @import("cleaner");
 
 bit_rate: cleaner.BitRate = .@"128k",
 destination: []const u8 = "",

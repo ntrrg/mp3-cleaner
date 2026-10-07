@@ -101,13 +101,13 @@ pub fn build(b: *std.Build) void {
         []const u8,
         "test-coverage-out",
         "Coverage reports destination",
-    ) orelse ".zig-cache/coverage";
+    ) orelse "zig-out/coverage";
 
     const test_file = b.option(
         []const u8,
         "test-file",
         "Use given file as tests root file",
-    ) orelse "src/cleaner/root_test.zig";
+    ) orelse "tests/root.zig";
 
     const test_filter = b.option(
         []const u8,
@@ -147,8 +147,38 @@ pub fn build(b: *std.Build) void {
     // Build //
     // ////////
 
+    const root_mod = b.addModule(name, .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = link_libc,
+        .single_threaded = single_threaded,
+        .strip = strip,
+        .sanitize_thread = sanitize_thread,
+        .valgrind = debug_valgrind,
+        .pic = pic,
+        .error_tracing = error_tracing,
+    });
+
+    root_mod.addImport("build_options", build_options_mod);
+    root_mod.addImport("ntz", ntz_mod);
+
+    const root_lib = b.addLibrary(.{
+        .name = name,
+        .version = std.SemanticVersion.parse(version) catch |err| {
+            std.debug.panic("invalid version format: {}", .{err});
+        },
+
+        .root_module = root_mod,
+        .linkage = if (dynamic_link) .dynamic else .static,
+        .use_llvm = use_llvm,
+        .use_lld = use_llvm,
+    });
+
+    b.installArtifact(root_lib);
+
     const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("exe/main.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = link_libc,
@@ -162,6 +192,7 @@ pub fn build(b: *std.Build) void {
 
     exe_mod.addImport("build_options", build_options_mod);
     exe_mod.addImport("ntz", ntz_mod);
+    exe_mod.addImport("cleaner", root_mod);
 
     const exe = b.addExecutable(.{
         .name = name,
@@ -213,6 +244,7 @@ pub fn build(b: *std.Build) void {
     test_mod.addImport("test_options", test_options.createModule());
     test_mod.addImport("build_options", build_options_mod);
     test_mod.addImport("ntz", ntz_mod);
+    test_mod.addImport("cleaner", root_mod);
 
     const test_exe = b.addTest(.{
         .name = b.fmt("{s}-test", .{name}),
@@ -237,8 +269,8 @@ pub fn build(b: *std.Build) void {
 
         coverage_cmd.addArgs(&.{
             "--clean",
-            "--include-pattern=ntz/src",
-            "--exclude-pattern=_test.zig",
+            "--include-pattern=mp3-cleaner/src",
+            "--exclude-pattern=mp3-cleaner/tests",
             test_coverage_out,
         });
 
@@ -257,7 +289,9 @@ pub fn build(b: *std.Build) void {
     const zig_fmt = b.addFmt(.{ .paths = b.pathList(&.{
         "build.zig.zon",
         "build.zig",
+        "exe",
         "src",
+        "tests",
     }) });
 
     fmt_step.dependOn(&zig_fmt.step);
@@ -273,14 +307,14 @@ pub fn build(b: *std.Build) void {
     // Documentation //
     // ////////////////
 
-    const ntz_docs = b.addInstallDirectory(.{
-        .source_dir = exe.getEmittedDocs(),
+    const docs = b.addInstallDirectory(.{
+        .source_dir = root_lib.getEmittedDocs(),
         .install_dir = .prefix,
         .install_subdir = "docs",
     });
 
     const docs_step = b.step("docs", "Generate documentation");
-    docs_step.dependOn(&ntz_docs.step);
+    docs_step.dependOn(&docs.step);
 }
 
 const Manifest = struct {

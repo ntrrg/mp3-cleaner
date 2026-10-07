@@ -8,8 +8,8 @@ const ntz = @import("ntz");
 const io_utils = ntz.io;
 const logging = ntz.logging;
 
+const cleaner = @import("cleaner");
 const Options = @import("Options.zig");
-const cleaner = @import("cleaner/root.zig");
 
 pub var global_status = ntz.Status{ .io = std.Options.debug_io };
 pub const global_log = logging.init();

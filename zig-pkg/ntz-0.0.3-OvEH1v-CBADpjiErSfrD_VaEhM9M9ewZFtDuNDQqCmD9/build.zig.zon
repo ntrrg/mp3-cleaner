@@ -1,0 +1,14 @@
+.{
+    .name = .ntz,
+    .fingerprint = 0x468b1be8d607f13a,
+    .minimum_zig_version = "0.17.0",
+    .version = "0.0.3",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "CONTRIBUTORS",
+        "LICENSE",
+    },
+}

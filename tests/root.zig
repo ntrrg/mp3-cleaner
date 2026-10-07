@@ -1,7 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
 
-const cleaner = @import("root.zig");
+const cleaner = @import("cleaner");
 
 test "humanizeBytes" {
     var got: cleaner.HumanizedResult = undefined;
