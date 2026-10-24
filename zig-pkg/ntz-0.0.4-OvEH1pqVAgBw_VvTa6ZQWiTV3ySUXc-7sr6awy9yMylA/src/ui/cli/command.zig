@@ -34,8 +34,8 @@ pub fn Command(comptime Context: type) type {
         opts: slices.Slice(cli.Option(Self, Context)) = .{},
         cmds: slices.Slice(Self) = .{},
 
-        flags_prefix: []const u8 = "",
         env_prefix: []const u8 = "",
+        flags_prefix: []const u8 = "",
 
         id: []const u8,
         name: []const u8,
@@ -120,8 +120,8 @@ pub fn Command(comptime Context: type) type {
                 .status = cmd.status,
                 .log = cmd.log,
 
-                .flags_prefix = cmd.flags_prefix,
                 .env_prefix = cmd.env_prefix,
+                .flags_prefix = cmd.flags_prefix,
 
                 .id = id,
                 .name = name,
@@ -144,9 +144,6 @@ pub fn Command(comptime Context: type) type {
             cmd: *Self,
             opt: cli.Option(Self, Context),
         ) AddOptionError!void {
-            if (opt.id.len == 0)
-                return error.NoOptionId;
-
             try cmd.opts.append(cmd.allocator, opt);
         }
 
@@ -163,8 +160,20 @@ pub fn Command(comptime Context: type) type {
             .action = Self.emptyAction,
         };
 
+        pub const genConfigOption: cli.Option(Self, Context) = .{
+            .id = "",
+            .flags = &.{"--gen-config"},
+            .help = "Prints a sample configuration file to stdout",
+            .placeholder = "format",
+            .has_optional_value = true,
+            .default = "ini",
+            .valid_values = &.{ "env", "ini" },
+            .readAction = Self.genConfigAction,
+            .action = Self.emptyAction,
+        };
+
         pub const helpOption: cli.Option(Self, Context) = .{
-            .id = "help",
+            .id = "",
             .flags = &.{"--help"},
             .help = "Print this help message",
             .placeholder = "option_id",
@@ -174,7 +183,7 @@ pub fn Command(comptime Context: type) type {
         };
 
         pub const versionOption: cli.Option(Self, Context) = .{
-            .id = "version",
+            .id = "",
             .flags = &.{"--version"},
             .help = "Print version number",
             .is_boolean = true,
@@ -188,7 +197,7 @@ pub fn Command(comptime Context: type) type {
             _: *Context,
             _: std.mem.Allocator,
             _: Self,
-            _: []const u8,
+            _: cli.Entry,
         ) !void {}
 
         pub fn envFileReadAction(
@@ -201,15 +210,40 @@ pub fn Command(comptime Context: type) type {
             const name = entry.value;
 
             cmd.fromEnvFile(arena, ctx, entries, name) catch |err| {
-                const msg = "cannot read option entries from env file '{s}''";
+                const msg = "cannot read option entries from env file '{s}'";
                 cmd.log.withError(err).errf(arena, msg, .{name});
                 return err;
             };
         }
 
+        pub fn genConfigAction(
+            _: *Context,
+            arena: std.mem.Allocator,
+            cmd: Self,
+            _: *cli.Entries,
+            entry: cli.Entry,
+        ) !void {
+            const value = entry.value;
+
+            var stdout = std.Io.File.stdout();
+            var stdout_writer = stdout.writer(cmd.io, &.{});
+
+            if (bytes.equal(value, "env")) {
+                try cli.writeConfigFileEnv(&stdout_writer.interface, cmd);
+            } else if (bytes.equal(value, "ini")) {
+                try cli.writeConfigFileIni(&stdout_writer.interface, cmd);
+            } else {
+                const msg = "invalid format for configuration file '{s}'";
+                cmd.log.errf(arena, msg, .{value});
+                return error.InvalidValue;
+            }
+
+            std.process.exit(0);
+        }
+
         pub fn helpReadAction(
             _: *Context,
-            _: std.mem.Allocator,
+            arena: std.mem.Allocator,
             cmd: Self,
             _: *cli.Entries,
             entry: cli.Entry,
@@ -220,6 +254,16 @@ pub fn Command(comptime Context: type) type {
             _ = &writer;
 
             if (entry.value.len > 0) {
+                const id = entry.value;
+
+                for (cmd.opts.items()) |opt| {
+                    if (bytes.equal(id, opt.id)) break;
+                } else {
+                    const msg = "invalid option '{s}'";
+                    cmd.log.errf(arena, msg, .{id});
+                    return error.InvalidOption;
+                }
+
                 try cli.writeOptionHelp(writer, cmd, entry.value);
             } else {
                 try cli.writeHelp(writer, cmd);
@@ -236,8 +280,8 @@ pub fn Command(comptime Context: type) type {
             _: cli.Entry,
         ) !void {
             var stdout = std.Io.File.stdout();
-            var writer = stdout.writer(cmd.io, &.{});
-            try cli.writeVersion(&writer.interface, cmd);
+            var stdout_writer = stdout.writer(cmd.io, &.{});
+            try cli.writeVersion(&stdout_writer.interface, cmd);
             std.process.exit(0);
         }
 
@@ -326,7 +370,7 @@ pub fn Command(comptime Context: type) type {
                                 .kind = .command,
                                 .command = cmd.id,
                                 .key = "",
-                                .value = try arena.dupe(u8, arg),
+                                .value = arg,
                             };
 
                             try entries.append(arena, entry);
@@ -377,8 +421,8 @@ pub fn Command(comptime Context: type) type {
                     const entry = cli.Entry{
                         .kind = .flag,
                         .command = cmd.id,
-                        .key = try arena.dupe(u8, key),
-                        .value = try arena.dupe(u8, value),
+                        .key = key,
+                        .value = value,
                     };
 
                     if (opt.readAction) |act| {
@@ -400,7 +444,7 @@ pub fn Command(comptime Context: type) type {
                     .kind = .argument,
                     .command = cmd.id,
                     .key = "",
-                    .value = try arena.dupe(u8, arg),
+                    .value = arg,
                 };
 
                 try entries.append(arena, entry);
@@ -445,13 +489,13 @@ pub fn Command(comptime Context: type) type {
         ) !void {
             const cwd = std.Io.Dir.cwd();
 
-            const env_buf = cwd.readFileAlloc(cmd.io, name, arena, .unlimited) catch |err| {
+            const data = cwd.readFileAlloc(cmd.io, name, arena, .unlimited) catch |err| {
                 const msg = "cannot read env file '{s}'";
                 cmd.log.withError(err).errf(arena, msg, .{name});
                 return err;
             };
 
-            try cmd.fromEnvString(arena, ctx, entries, env_buf);
+            try cmd.fromEnvBytes(arena, ctx, entries, data);
         }
 
         pub fn fromEnvMap(
@@ -476,8 +520,8 @@ pub fn Command(comptime Context: type) type {
                 const entry = cli.Entry{
                     .kind = .env,
                     .command = cmd.id,
-                    .key = try arena.dupe(u8, key),
-                    .value = try arena.dupe(u8, value),
+                    .key = key,
+                    .value = value,
                 };
 
                 if (opt.readAction) |act| {
@@ -491,17 +535,17 @@ pub fn Command(comptime Context: type) type {
                 try sub_cmd.fromEnvMap(arena, ctx, entries, env);
         }
 
-        pub fn fromEnvString(
+        pub fn fromEnvBytes(
             cmd: Self,
             arena: std.mem.Allocator,
             ctx: *Context,
             entries: *cli.Entries,
-            s: []const u8,
+            data: []const u8,
         ) !void {
             var env = std.process.Environ.Map.init(arena);
 
             var ln: usize = 1;
-            var it = bytes.splitIterator(s, '\n');
+            var it = bytes.splitIterator(data, '\n');
 
             while (it.next()) |line| : (ln += 1) {
                 if (line.len == 0) continue;
@@ -515,15 +559,14 @@ pub fn Command(comptime Context: type) type {
                     return error.MissingValue;
                 }
 
-                const i = eq_i.?;
-                const key = line[0..i];
-                var value = line[i + 1 ..];
+                const key = line[0..eq_i.?];
+                var value = line[eq_i.? + 1 ..];
 
                 if (value[0] == '"') {
                     if (value.len == 1 or value[value.len - 1] != '"') {
                         const msg = "unclosed quote for '{s}' in line {d}";
                         cmd.log.errf(arena, msg, .{ key, ln });
-                        return error.InvalidValue;
+                        return error.InvalidSyntax;
                     }
 
                     value = value[1 .. value.len - 1];
@@ -533,6 +576,140 @@ pub fn Command(comptime Context: type) type {
             }
 
             try cmd.fromEnvMap(arena, ctx, entries, env);
+        }
+
+        // Configuration //
+
+        pub const ConfigEntry = struct {
+            key: []const u8,
+            value: []const u8,
+        };
+
+        pub fn fromConfig(
+            cmd: Self,
+            arena: std.mem.Allocator,
+            ctx: *Context,
+            entries: *cli.Entries,
+            cfgEntries: []const ConfigEntry,
+        ) !void {
+            for (cfgEntries) |cfg| {
+                for (cmd.opts.items()) |opt| {
+                    if (opt.id.len == 0) continue;
+
+                    const key = if (cmd.parent == null)
+                        opt.id
+                    else
+                        try bytes.concatMany(arena, &.{ cmd.id, ".", opt.id });
+
+                    if (!bytes.equal(cfg.key, key)) continue;
+
+                    const entry = cli.Entry{
+                        .kind = .config,
+                        .command = cmd.id,
+                        .key = opt.id,
+                        .value = cfg.value,
+                    };
+
+                    if (opt.readAction) |act| {
+                        try act(ctx, arena, cmd, entries, entry);
+                    } else {
+                        try entries.append(arena, entry);
+                    }
+
+                    break;
+                } else {
+                    if (!bytes.startsWith(cfg.key, cmd.id)) continue;
+                    const key = cfg.key[cmd.id.len + 1 ..];
+                    if (bytes.find(key, '.') != null) continue;
+
+                    const msg = "unknown config entry '{s}'";
+                    cmd.log.errf(arena, msg, .{cfg.key});
+                    return error.UnknowEntry;
+                }
+            }
+
+            for (cmd.cmds.items()) |sub_cmd|
+                try sub_cmd.fromConfig(arena, ctx, entries, cfgEntries);
+        }
+
+        pub fn fromConfigIniFile(
+            cmd: Self,
+            arena: std.mem.Allocator,
+            ctx: *Context,
+            entries: *cli.Entries,
+            name: []const u8,
+        ) !void {
+            const cwd = std.Io.Dir.cwd();
+
+            const data = cwd.readFileAlloc(cmd.io, name, arena, .unlimited) catch |err| {
+                const msg = "cannot read ini file '{s}'";
+                cmd.log.withError(err).errf(arena, msg, .{name});
+                return err;
+            };
+
+            try cmd.fromConfigIniBytes(arena, ctx, entries, data);
+        }
+
+        pub fn fromConfigIniBytes(
+            cmd: Self,
+            arena: std.mem.Allocator,
+            ctx: *Context,
+            entries: *cli.Entries,
+            data: []const u8,
+        ) !void {
+            var cfgs: slices.Slice(ConfigEntry) = .{};
+
+            var prefix: []const u8 = "";
+            var ln: usize = 1;
+            var it = bytes.splitIterator(data, '\n');
+
+            while (it.next()) |line| : (ln += 1) {
+                if (line.len == 0) continue;
+                if (line[0] == '#' or line[0] == ';') continue;
+
+                if (line[0] == '[') {
+                    const j = bytes.find(line, ']');
+
+                    if (j == null) {
+                        const msg = "missing ']' in line {d}";
+                        cmd.log.errf(arena, msg, .{ln});
+                        return error.InvalidSyntax;
+                    }
+
+                    prefix = line[1..j.?];
+                    continue;
+                }
+
+                const eq_i = bytes.find(line, '=');
+
+                if (eq_i == null or eq_i.? == line.len - 1) {
+                    const msg = "missing value for key '{s}' in line {d}";
+                    cmd.log.errf(arena, msg, .{ line, ln });
+                    return error.MissingValue;
+                }
+
+                const key = try bytes.concatMany(arena, &.{
+                    prefix,
+                    ".",
+                    line[0..eq_i.?],
+                });
+
+                var value = line[eq_i.? + 1 ..];
+
+                if (value[0] == '"') {
+                    if (value.len == 1 or value[value.len - 1] != '"') {
+                        const msg = "unclosed quote for '{s}' in line {d}";
+                        cmd.log.errf(arena, msg, .{ key, ln });
+                        return error.InvalidSyntax;
+                    }
+
+                    value = value[1 .. value.len - 1];
+                }
+
+                try cfgs.append(arena, .{ .key = key, .value = value });
+            }
+
+            try cmd.fromConfig(arena, ctx, entries, cfgs.items());
         }
     };
 }

@@ -42,14 +42,13 @@ pub fn Option(comptime Command: type, comptime Context: type) type {
             ctx: *Context,
             arena: std.mem.Allocator,
             cmd: Command,
-            value: []const u8,
+            entry: cli.Entry,
         ) anyerror!void,
 
-        const LoadError = error{
-            CannotRunAction,
+        pub const LoadError = error{
             MissingEntry,
             RepeatedFlag,
-        } || ValidateError;
+        } || LoadEntryError;
 
         pub fn load(
             opt: Self,
@@ -59,6 +58,7 @@ pub fn Option(comptime Command: type, comptime Context: type) type {
             entries: []const cli.Entry,
         ) LoadError!void {
             var action_entry: ?cli.Entry = null;
+            var loaded_from_env = false;
             var loaded_from_flag = false;
 
             for (entries) |entry| {
@@ -66,33 +66,21 @@ pub fn Option(comptime Command: type, comptime Context: type) type {
                     continue;
 
                 switch (entry.kind) {
+                    .config => {
+                        if (loaded_from_flag or loaded_from_env) continue;
+                        opt.shouldLoad(cmd, entry) catch continue;
+                        action_entry = entry;
+                    },
+
                     .env => {
                         if (loaded_from_flag) continue;
-
-                        const prefix = cmd.env_prefix;
-
-                        if (prefix.len > 0 and
-                            !bytes.startsWith(entry.key, prefix))
-                            continue;
-
-                        const key = entry.key[prefix.len..];
-                        if (!bytes.equal(key, opt.env)) continue;
-
-                        action_entry = .{
-                            .kind = entry.kind,
-                            .command = entry.command,
-                            .key = key,
-                            .value = entry.value,
-                        };
+                        opt.shouldLoad(cmd, entry) catch continue;
+                        action_entry = entry;
+                        loaded_from_env = true;
                     },
 
                     .flag => {
-                        if (cmd.flags_prefix.len > 0 and
-                            !bytes.startsWith(entry.key, cmd.flags_prefix))
-                            continue;
-
-                        const key = entry.key[cmd.flags_prefix.len..];
-                        if (!bytes.equalAny(key, opt.flags)) continue;
+                        opt.shouldLoad(cmd, entry) catch continue;
 
                         if (loaded_from_flag and !opt.is_repeatable) {
                             const msg = "repeated flag '{s}'";
@@ -100,25 +88,11 @@ pub fn Option(comptime Command: type, comptime Context: type) type {
                             return error.RepeatedFlag;
                         }
 
-                        const value = entry.value;
-
-                        if (value.len > 0)
-                            opt.validate(value) catch |err| {
-                                const msg = "invalid value '{s}' for flag '{s}'";
-                                cmd.log.withError(err).errf(arena, msg, .{ value, entry.key });
-                                return err;
-                            };
-
-                        opt.action(ctx, arena, cmd, value) catch |err| {
-                            const msg = "cannot load value '{s}' from flag '{s}'";
-                            cmd.log.withError(err).errf(arena, msg, .{ value, entry.key });
-                            return error.CannotRunAction;
-                        };
-
+                        try opt.loadEntry(arena, cmd, ctx, entry);
                         loaded_from_flag = true;
                     },
 
-                    .command, .argument => break,
+                    .command, .argument, .arbitrary => break,
                 }
             }
 
@@ -130,36 +104,80 @@ pub fn Option(comptime Command: type, comptime Context: type) type {
             }
 
             if (action_entry == null) return;
+            try opt.loadEntry(arena, cmd, ctx, action_entry.?);
+        }
 
-            const entry = action_entry.?;
+        pub const LoadEntryError = error{CannotRunAction} || ValidateError;
 
-            const from = if (entry.kind == .env)
-                "environment variable"
-            else
-                "manual entry";
+        fn loadEntry(
+            opt: Self,
+            arena: std.mem.Allocator,
+            cmd: Command,
+            ctx: *Context,
+            entry: cli.Entry,
+        ) LoadEntryError!void {
+            const from = switch (entry.kind) {
+                .config => "configuration entry",
+                .env => "environment variable",
+                .flag => "flag",
+                else => unreachable,
+            };
 
-            const prefix = if (entry.kind == .env)
-                cmd.env_prefix
-            else
-                "";
+            opt.validate(entry.value) catch |err| {
+                cmd.log.withError(err).errf(
+                    arena,
+                    "invalid value '{s}' for {s} '{s}'",
+                    .{ entry.value, from, entry.key },
+                );
 
-            const key = entry.key;
-            const value = entry.value;
-
-            opt.validate(value) catch |err| {
-                const msg = "invalid value '{s}' for {s} '{s}{s}'";
-                cmd.log.withError(err).errf(arena, msg, .{ value, from, prefix, key });
                 return err;
             };
 
-            opt.action(ctx, arena, cmd, value) catch |err| {
-                const msg = "cannot load value '{s}' from {s} '{s}{s}'";
-                cmd.log.withError(err).errf(arena, msg, .{ value, from, prefix, key });
+            opt.action(ctx, arena, cmd, entry) catch |err| {
+                cmd.log.withError(err).errf(
+                    arena,
+                    "cannot load value '{s}' from {s} '{s}'",
+                    .{ entry.value, from, entry.key },
+                );
+
                 return error.CannotRunAction;
             };
         }
 
-        const ValidateError = error{InvalidValue};
+        const ShouldLoadError = error{
+            InvalidEntryKind,
+            InvalidPrefix,
+            InvalidEntry,
+        };
+
+        fn shouldLoad(
+            opt: Self,
+            cmd: Command,
+            entry: cli.Entry,
+        ) ShouldLoadError!void {
+            const prefix = switch (entry.kind) {
+                .config => "",
+                .env => cmd.env_prefix,
+                .flag => cmd.flags_prefix,
+                else => return error.InvalidEntryKind,
+            };
+
+            if (prefix.len > 0 and !bytes.startsWith(entry.key, prefix))
+                return error.InvalidPrefix;
+
+            const key = entry.key[prefix.len..];
+
+            switch (entry.kind) {
+                .config => if (bytes.equal(key, opt.id)) return,
+                .env => if (bytes.equal(key, opt.env)) return,
+                .flag => if (bytes.equalAny(key, opt.flags)) return,
+                else => {},
+            }
+
+            return error.InvalidEntry;
+        }
+
+        pub const ValidateError = error{InvalidValue};
 
         fn validate(opt: Self, value: []const u8) ValidateError!void {
             if (opt.valid_values.len == 0) return;

@@ -101,6 +101,11 @@ pub fn command(
         .action = Self.cliMain,
     };
 
+    try cmd.addOption(Command.helpOption);
+    try cmd.addOption(Command.versionOption);
+    try cmd.addOption(Command.envFileOption);
+    try cmd.addOption(Command.genConfigOption);
+
     try cmd.addOption(.{
         .id = "bit_rate",
         .flags = &.{ "-b", "--bit-rate" },
@@ -115,7 +120,7 @@ pub fn command(
     // Logging.
 
     try cmd.addOption(.{
-        .id = "log_file",
+        .id = "log.file",
         .flags = &.{"--log-file"},
         .env = "LOG_FILE",
         .help = "Use given file as log file",
@@ -124,7 +129,7 @@ pub fn command(
     });
 
     try cmd.addOption(.{
-        .id = "log_format",
+        .id = "log.format",
         .flags = &.{"--log-format"},
         .env = "LOG_FORMAT",
         .help = "Use given format as log encoding format",
@@ -135,7 +140,7 @@ pub fn command(
     });
 
     try cmd.addOption(.{
-        .id = "log_level",
+        .id = "log.level",
         .flags = &.{"--log-level"},
         .env = "LOG_LEVEL",
         .help = "Minimum severity for log records",
@@ -143,10 +148,6 @@ pub fn command(
         .valid_values = &.{ "debug", "info", "warn", "error", "fatal", "disabled" },
         .action = cliLogLevel,
     });
-
-    try cmd.addOption(Command.envFileOption);
-    try cmd.addOption(Command.helpOption);
-    try cmd.addOption(Command.versionOption);
 
     return cmd;
 }
@@ -207,8 +208,10 @@ fn cliBitRate(
     opts: *Self,
     arena: std.mem.Allocator,
     cmd: Command,
-    value: []const u8,
+    entry: cli.Entry,
 ) !void {
+    const value = entry.value;
+
     if (value.len == 0) {
         cmd.log.err("no bit rate given");
         return error.MissingValue;
@@ -271,8 +274,10 @@ fn cliLogFile(
     opts: *Self,
     _: std.mem.Allocator,
     cmd: Command,
-    value: []const u8,
+    entry: cli.Entry,
 ) !void {
+    const value = entry.value;
+
     if (value.len == 0) {
         cmd.log.info("using stdout as log file");
     }
@@ -284,8 +289,10 @@ fn cliLogFormat(
     opts: *Self,
     arena: std.mem.Allocator,
     cmd: Command,
-    value: []const u8,
+    entry: cli.Entry,
 ) !void {
+    const value = entry.value;
+
     if (value.len == 0) {
         cmd.log.err("no log format given");
         return error.EmptyValue;
@@ -305,8 +312,10 @@ fn cliLogLevel(
     opts: *Self,
     arena: std.mem.Allocator,
     cmd: Command,
-    value: []const u8,
+    entry: cli.Entry,
 ) !void {
+    const value = entry.value;
+
     if (value.len == 0) {
         cmd.log.err("no log severity given");
         return error.EmptyValue;

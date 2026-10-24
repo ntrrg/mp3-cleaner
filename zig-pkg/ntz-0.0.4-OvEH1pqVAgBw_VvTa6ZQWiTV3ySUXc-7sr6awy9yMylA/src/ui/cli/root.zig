@@ -3,7 +3,7 @@
 
 //! # `ntz.ui.cli`
 //!
-//! Command line interface implementation. Supports configuration files (.env),
+//! Command line interface implementation. Supports configuration files,
 //! environtment variables, flags and arguments.
 
 const std = @import("std");
@@ -17,10 +17,21 @@ pub const Command = @import("command.zig").Command;
 pub const Entries = slices.Slice(Entry);
 
 pub const Entry = struct {
-    kind: enum { env, flag, command, argument },
+    const Self = @This();
+
+    kind: enum { config, env, flag, command, argument, arbitrary },
     command: []const u8,
     key: []const u8,
     value: []const u8,
+
+    pub fn init(value: []const u8) Self {
+        return .{
+            .kind = .arbitrary,
+            .command = "",
+            .key = "",
+            .value = value,
+        };
+    }
 };
 
 pub const Option = @import("option.zig").Option;
@@ -62,6 +73,126 @@ pub fn writeCommands(writer: *Writer, cmd: anytype, title: []const u8) !void {
     }
 }
 
+pub fn writeConfig(writer: *Writer, cmd: anytype, title: []const u8) !void {
+    if (cmd.opts.len == 0) return;
+
+    var has_title = false;
+
+    for (cmd.opts.items()) |opt| {
+        if (opt.id.len == 0) continue;
+
+        if (!has_title and title.len > 0) {
+            try writer.writeAll("\n");
+            try writer.writeAll(title);
+            try writer.writeAll("\n");
+            has_title = true;
+        }
+
+        try writer.writeAll("  - ");
+        try writer.writeAll(opt.id);
+        try writer.writeAll(": ");
+        try writer.writeAll(opt.help);
+        try writer.writeAll(".\n");
+    }
+}
+
+pub fn writeConfigFileEnv(writer: *Writer, cmd: anytype) !void {
+    for (cmd.opts.items()) |opt| {
+        if (opt.env.len == 0) continue;
+
+        try writer.writeAll("# ");
+
+        if (opt.id.len > 0) {
+            try writer.writeAll(opt.id);
+            try writer.writeAll(": ");
+        }
+
+        try writer.writeAll(opt.help);
+
+        if (opt.valid_values.len > 0) {
+            try writer.writeAll(" (");
+
+            for (opt.valid_values, 0..) |value, i| {
+                if (i > 0) try writer.writeAll("|");
+                try writer.writeAll(value);
+            }
+
+            try writer.writeAll(")");
+        }
+
+        try writer.writeAll("\n");
+
+        if (opt.default.len == 0 or opt.has_optional_value)
+            try writer.writeAll("#");
+
+        try writer.writeAll(cmd.env_prefix);
+        try writer.writeAll(opt.env);
+        try writer.writeAll("=");
+
+        if (opt.default.len > 0) {
+            try writer.writeAll(opt.default);
+        } else {
+            try writer.writeAll("<");
+            try writer.writeAll(opt.placeholder);
+            try writer.writeAll(">");
+        }
+
+        try writer.writeAll("\n");
+    }
+
+    for (cmd.cmds.items()) |subcmd| {
+        try writer.writeAll("\n# ");
+        try writer.writeAll(subcmd.id);
+        try writer.writeAll("\n");
+        try writeConfigFileEnv(writer, subcmd);
+    }
+}
+
+pub fn writeConfigFileIni(writer: *Writer, cmd: anytype) !void {
+    for (cmd.opts.items()) |opt| {
+        if (opt.id.len == 0) continue;
+
+        try writer.writeAll("# ");
+        try writer.writeAll(opt.help);
+
+        if (opt.valid_values.len > 0) {
+            try writer.writeAll(" (");
+
+            for (opt.valid_values, 0..) |value, i| {
+                if (i > 0) try writer.writeAll("|");
+                try writer.writeAll(value);
+            }
+
+            try writer.writeAll(")");
+        }
+
+        try writer.writeAll("\n");
+
+        if (opt.default.len == 0 or opt.has_optional_value)
+            try writer.writeAll("#");
+
+        try writer.writeAll(opt.id);
+        try writer.writeAll("=");
+
+        if (opt.default.len > 0) {
+            try writer.writeAll(opt.default);
+        } else {
+            try writer.writeAll("<");
+            try writer.writeAll(opt.placeholder);
+            try writer.writeAll(">");
+        }
+
+        try writer.writeAll("\n");
+    }
+
+    for (cmd.cmds.items()) |subcmd| {
+        try writer.writeAll("\n[");
+        try writer.writeAll(subcmd.id);
+        try writer.writeAll("]\n");
+        try writeConfigFileIni(writer, subcmd);
+    }
+}
+
 pub fn writeEnvVars(writer: *Writer, cmd: anytype, title: []const u8) !void {
     if (cmd.opts.len == 0) return;
 
@@ -80,9 +211,14 @@ pub fn writeEnvVars(writer: *Writer, cmd: anytype, title: []const u8) !void {
         try writer.writeAll("  - ");
         try writer.writeAll(cmd.env_prefix);
         try writer.writeAll(opt.env);
-        try writer.writeAll(" (id: ");
-        try writer.writeAll(opt.id);
-        try writer.writeAll("): ");
+
+        if (opt.id.len > 0) {
+            try writer.writeAll(" (id: ");
+            try writer.writeAll(opt.id);
+            try writer.writeAll(")");
+        }
+
+        try writer.writeAll(": ");
         try writer.writeAll(opt.help);
         try writer.writeAll(".\n");
     }
@@ -134,9 +270,11 @@ pub fn writeFlags(writer: *Writer, cmd: anytype, title: []const u8) !void {
             try writer.writeAll(")");
         }
 
-        try writer.writeAll(" (id: ");
-        try writer.writeAll(opt.id);
-        try writer.writeAll(")");
+        if (opt.id.len > 0) {
+            try writer.writeAll(" (id: ");
+            try writer.writeAll(opt.id);
+            try writer.writeAll(")");
+        }
 
         try writer.writeAll("\n");
         try writer.writeAll("    ");
@@ -181,6 +319,7 @@ pub fn writeHelp(writer: *Writer, cmd: anytype) !void {
     try writeCommands(writer, cmd, "Commands:");
     try writeFlags(writer, cmd, "Options:");
     try writeEnvVars(writer, cmd, "Environment variables:");
+    try writeConfig(writer, cmd, "Configuration:");
 
     // Epilogue.
 
@@ -211,6 +350,12 @@ pub fn writeName(writer: *Writer, cmd: anytype) !void {
 pub fn writeOptionHelp(writer: *Writer, cmd: anytype, id: []const u8) !void {
     for (cmd.opts.items()) |opt| {
         if (!bytes.equal(id, opt.id)) continue;
+
+        if (cmd.parent != null) {
+            try writer.writeAll(cmd.id);
+            try writer.writeAll(".");
+        }
+
         try writer.writeAll(opt.id);
         try writer.writeAll(" - ");
         try writer.writeAll(opt.help);
@@ -256,7 +401,7 @@ pub fn writeOptionHelp(writer: *Writer, cmd: anytype, id: []const u8) !void {
         }
 
         if (opt.env.len > 0) {
-            try writer.writeAll("Environment: ");
+            try writer.writeAll("Environment variable: ");
             try writer.writeAll(cmd.env_prefix);
             try writer.writeAll(opt.env);
             try writer.writeAll("\n");
