@@ -5,8 +5,8 @@
     .version = "0.0.1",
     .dependencies = .{
         .ntz = .{
-            .url = "git+https://github.com/ntrrg/ntz?ref=v0.0.5#f3103356e2c54e7f446101e10049ec178c7ee949",
-            .hash = "ntz-0.0.5-OvEH1pOVAgCOJ3G_NsTrdimqJLNTFQLoRkAcUH0X9cwo",
+            .url = "git+https://github.com/ntrrg/ntz?ref=v0.0.6#532550a6a7efd1b901491f9485fa8776996ff14f",
+            .hash = "ntz-0.0.6-OvEH1pqhAgCiApbl0GaV6qhe8-wjJCQ1hb7yMXtjQadn",
         },
     },
     .paths = .{

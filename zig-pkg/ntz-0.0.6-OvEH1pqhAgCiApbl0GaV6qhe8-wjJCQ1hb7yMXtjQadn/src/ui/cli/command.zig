@@ -580,17 +580,12 @@ pub fn Command(comptime Context: type) type {
 
         // Configuration //
 
-        pub const ConfigEntry = struct {
-            key: []const u8,
-            value: []const u8,
-        };
-
         pub fn fromConfig(
             cmd: Self,
             arena: std.mem.Allocator,
             ctx: *Context,
             entries: *cli.Entries,
-            cfgEntries: []const ConfigEntry,
+            cfgEntries: []const cli.ConfigEntry,
         ) !void {
             for (cfgEntries) |cfg| {
                 for (cmd.opts.items()) |opt| {
@@ -657,7 +652,7 @@ pub fn Command(comptime Context: type) type {
             entries: *cli.Entries,
             data: []const u8,
         ) !void {
-            var cfgs: slices.Slice(ConfigEntry) = .{};
+            var cfgs: slices.Slice(cli.ConfigEntry) = .{};
 
             var prefix: []const u8 = "";
             var ln: usize = 1;

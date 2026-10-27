@@ -14,6 +14,12 @@ const bytes = types.bytes;
 const slices = types.slices;
 
 pub const Command = @import("command.zig").Command;
+
+pub const ConfigEntry = struct {
+    key: []const u8,
+    value: []const u8,
+};
+
 pub const Entries = slices.Slice(Entry);
 
 pub const Entry = struct {
@@ -39,62 +45,6 @@ pub const Option = @import("option.zig").Option;
 // //////////////////////////////
 // Help and version generation //
 // //////////////////////////////
-
-pub fn writeCommands(writer: *Writer, cmd: anytype, title: []const u8) !void {
-    if (cmd.cmds.len == 0) return;
-
-    var has_title = false;
-
-    for (cmd.cmds.items()) |sub_cmd| {
-        if (!has_title and title.len > 0) {
-            try writer.writeAll("\n");
-            try writer.writeAll(title);
-            try writer.writeAll("\n");
-            has_title = true;
-        }
-
-        try writer.writeAll("  ");
-        try writer.writeAll(sub_cmd.name);
-
-        if (sub_cmd.aliases.len > 0) {
-            try writer.writeAll(" (");
-
-            for (sub_cmd.aliases, 0..) |alias, i| {
-                if (i > 0) try writer.writeAll("|");
-                try writer.writeAll(alias);
-            }
-
-            try writer.writeAll(")");
-        }
-
-        try writer.writeAll(": ");
-        try writer.writeAll(sub_cmd.description);
-        try writer.writeAll(".\n");
-    }
-}
-
-pub fn writeConfig(writer: *Writer, cmd: anytype, title: []const u8) !void {
-    if (cmd.opts.len == 0) return;
-
-    var has_title = false;
-
-    for (cmd.opts.items()) |opt| {
-        if (opt.id.len == 0) continue;
-
-        if (!has_title and title.len > 0) {
-            try writer.writeAll("\n");
-            try writer.writeAll(title);
-            try writer.writeAll("\n");
-            has_title = true;
-        }
-
-        try writer.writeAll("  - ");
-        try writer.writeAll(opt.id);
-        try writer.writeAll(": ");
-        try writer.writeAll(opt.help);
-        try writer.writeAll(".\n");
-    }
-}
 
 pub fn writeConfigFileEnv(writer: *Writer, cmd: anytype) !void {
     for (cmd.opts.items()) |opt| {
@@ -193,13 +143,101 @@ pub fn writeConfigFileIni(writer: *Writer, cmd: anytype) !void {
     }
 }
 
-pub fn writeEnvVars(writer: *Writer, cmd: anytype, title: []const u8) !void {
+pub fn writeHelp(writer: *Writer, cmd: anytype) !void {
+    _ = try writeName(writer, cmd);
+
+    if (cmd.description.len > 0) {
+        try writer.writeAll(" - ");
+        try writer.writeAll(cmd.description);
+        try writer.writeAll(".");
+    }
+
+    try writer.writeAll("\n");
+
+    // Long description
+
+    if (cmd.longDescription.len > 0) {
+        try writer.writeAll("\n");
+        try writer.writeAll(cmd.longDescription);
+        try writer.writeAll("\n");
+    }
+
+    // Usage.
+
+    try writer.writeAll("\n");
+
+    if (cmd.usage.len > 0) {
+        try writer.writeAll(cmd.usage);
+    } else {
+        try writer.writeAll("Usage: ");
+        try writer.writeAll(cmd.name);
+        try writer.writeAll(" [<options>]\n");
+    }
+
+    // Commands, flags and environment variables.
+
+    try writeHelpCommands(writer, cmd, "Commands:");
+    try writeHelpFlags(writer, cmd, "Options:");
+    try writeHelpEnvVars(writer, cmd, "Environment variables:");
+    try writeHelpConfig(writer, cmd, "Configuration:");
+
+    // Epilogue.
+
+    if (cmd.epilog.len > 0) {
+        try writer.writeAll("\n");
+        try writer.writeAll(cmd.epilog);
+        try writer.writeAll("\n");
+    }
+
+    // Copyright.
+
+    if (cmd.copyright.len > 0) {
+        try writer.writeAll("\n");
+        try writer.writeAll(cmd.copyright);
+        try writer.writeAll("\n");
+    }
+}
+
+fn writeHelpCommands(writer: *Writer, cmd: anytype, title: []const u8) !void {
+    if (cmd.cmds.len == 0) return;
+
+    var has_title = false;
+
+    for (cmd.cmds.items()) |sub_cmd| {
+        if (!has_title and title.len > 0) {
+            try writer.writeAll("\n");
+            try writer.writeAll(title);
+            try writer.writeAll("\n");
+            has_title = true;
+        }
+
+        try writer.writeAll("  ");
+        try writer.writeAll(sub_cmd.name);
+
+        if (sub_cmd.aliases.len > 0) {
+            try writer.writeAll(" (");
+
+            for (sub_cmd.aliases, 0..) |alias, i| {
+                if (i > 0) try writer.writeAll("|");
+                try writer.writeAll(alias);
+            }
+
+            try writer.writeAll(")");
+        }
+
+        try writer.writeAll(": ");
+        try writer.writeAll(sub_cmd.description);
+        try writer.writeAll(".\n");
+    }
+}
+
+fn writeHelpConfig(writer: *Writer, cmd: anytype, title: []const u8) !void {
     if (cmd.opts.len == 0) return;
 
     var has_title = false;
 
     for (cmd.opts.items()) |opt| {
-        if (opt.env.len == 0) continue;
+        if (opt.id.len == 0) continue;
 
         if (!has_title and title.len > 0) {
             try writer.writeAll("\n");
@@ -209,22 +247,14 @@ pub fn writeEnvVars(writer: *Writer, cmd: anytype, title: []const u8) !void {
         }
 
         try writer.writeAll("  - ");
-        try writer.writeAll(cmd.env_prefix);
-        try writer.writeAll(opt.env);
-
-        if (opt.id.len > 0) {
-            try writer.writeAll(" (id: ");
-            try writer.writeAll(opt.id);
-            try writer.writeAll(")");
-        }
-
+        try writer.writeAll(opt.id);
         try writer.writeAll(": ");
         try writer.writeAll(opt.help);
         try writer.writeAll(".\n");
     }
 }
 
-pub fn writeFlags(writer: *Writer, cmd: anytype, title: []const u8) !void {
+fn writeHelpFlags(writer: *Writer, cmd: anytype, title: []const u8) !void {
     if (cmd.opts.len == 0) return;
 
     var has_title = false;
@@ -283,58 +313,34 @@ pub fn writeFlags(writer: *Writer, cmd: anytype, title: []const u8) !void {
     }
 }
 
-pub fn writeHelp(writer: *Writer, cmd: anytype) !void {
-    _ = try writeName(writer, cmd);
+fn writeHelpEnvVars(writer: *Writer, cmd: anytype, title: []const u8) !void {
+    if (cmd.opts.len == 0) return;
 
-    if (cmd.description.len > 0) {
-        try writer.writeAll(" - ");
-        try writer.writeAll(cmd.description);
-        try writer.writeAll(".");
-    }
+    var has_title = false;
 
-    try writer.writeAll("\n");
+    for (cmd.opts.items()) |opt| {
+        if (opt.env.len == 0) continue;
 
-    // Long description
+        if (!has_title and title.len > 0) {
+            try writer.writeAll("\n");
+            try writer.writeAll(title);
+            try writer.writeAll("\n");
+            has_title = true;
+        }
 
-    if (cmd.longDescription.len > 0) {
-        try writer.writeAll("\n");
-        try writer.writeAll(cmd.longDescription);
-        try writer.writeAll("\n");
-    }
+        try writer.writeAll("  - ");
+        try writer.writeAll(cmd.env_prefix);
+        try writer.writeAll(opt.env);
 
-    // Usage.
+        if (opt.id.len > 0) {
+            try writer.writeAll(" (id: ");
+            try writer.writeAll(opt.id);
+            try writer.writeAll(")");
+        }
 
-    try writer.writeAll("\n");
-
-    if (cmd.usage.len > 0) {
-        try writer.writeAll(cmd.usage);
-    } else {
-        try writer.writeAll("Usage: ");
-        try writer.writeAll(cmd.name);
-        try writer.writeAll(" [<options>]\n");
-    }
-
-    // Commands, flags and environment variables.
-
-    try writeCommands(writer, cmd, "Commands:");
-    try writeFlags(writer, cmd, "Options:");
-    try writeEnvVars(writer, cmd, "Environment variables:");
-    try writeConfig(writer, cmd, "Configuration:");
-
-    // Epilogue.
-
-    if (cmd.epilog.len > 0) {
-        try writer.writeAll("\n");
-        try writer.writeAll(cmd.epilog);
-        try writer.writeAll("\n");
-    }
-
-    // Copyright.
-
-    if (cmd.copyright.len > 0) {
-        try writer.writeAll("\n");
-        try writer.writeAll(cmd.copyright);
-        try writer.writeAll("\n");
+        try writer.writeAll(": ");
+        try writer.writeAll(opt.help);
+        try writer.writeAll(".\n");
     }
 }
 

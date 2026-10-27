@@ -8,6 +8,8 @@
 
 const std = @import("std");
 
+const id_utils = @import("../id/root.zig");
+const tracing = id_utils.tracing;
 const io_utils = @import("../io/root.zig");
 const types = @import("../types/root.zig");
 const bytes = types.bytes;
@@ -62,6 +64,9 @@ pub const Level = enum {
 
 pub const Logger = @import("logger.zig").Logger;
 pub const logger = @import("logger.zig").init;
+
+pub const Span = tracing.Span;
+pub const Trace = tracing.Trace;
 
 // /////////////////
 // Default logger //

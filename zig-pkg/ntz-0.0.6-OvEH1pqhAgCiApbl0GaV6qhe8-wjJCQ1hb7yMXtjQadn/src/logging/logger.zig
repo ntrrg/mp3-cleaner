@@ -4,6 +4,8 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
+const id_utils = @import("../id/root.zig");
+const tracing = id_utils.tracing;
 const types = @import("../types/root.zig");
 const funcs = types.funcs;
 const structs = types.structs;
@@ -28,12 +30,6 @@ pub fn Logger(
     comptime Context: type,
     comptime scope: []const u8,
 ) type {
-    if (!@hasField(Context, "msg"))
-        @compileError("given Context (" ++ @typeName(Context) ++ ") doesn't have a 'msg' field");
-
-    if (!@hasField(Context, "error"))
-        @compileError("given Context (" ++ @typeName(Context) ++ ") doesn't have a 'error' field");
-
     return struct {
         const Self = @This();
 
@@ -142,65 +138,67 @@ pub fn Logger(
             return _l;
         }
 
-        /// Creates a logger using given level as minimum logging severity.
+        /// Creates a logger using the given level as minimum logging severity.
         pub fn withSeverity(l: Self, level: Level) Self {
             var _l = l;
             _l.level = level;
             return _l;
         }
 
-        // //////////////////////
-        // Logger manipulation //
-        // //////////////////////
+        // //////////
+        // Tracing //
+        // //////////
 
-        /// Creates a logger using the given context.
-        pub fn withContext(l: Self, comptime NewContext: type) Logger(
-            Encoder,
-            NewContext,
-            scope,
-        ) {
-            return .{
-                .mux = l.mux,
-                .w = l.w,
-                .e = l.e,
-                .level = l.level,
+        /// Creates a logger using a new trace span identifier.
+        pub fn newSpan(l: Self, io: std.Io) Self {
+            const id: logging.Span = tracing.span(io) catch |_err| blk: {
+                l.withError(_err).err("cannot genetare span id");
+                break :blk @splat(0);
             };
+
+            return l.withSpan(id);
         }
 
-        /// Creates a logger using given encoder.
-        pub fn withEncoder(l: Self, encoder: anytype) Logger(
-            @TypeOf(encoder),
-            Context,
-            scope,
-        ) {
-            return .{
-                .mux = l.mux,
-                .w = l.w,
-                .e = encoder,
-                .level = l.level,
-                .ctx = l.ctx,
+        /// Creates a logger using a new trace span identifier with the current
+        /// span identifier as parent.
+        pub fn newSpanChild(l: Self, io: std.Io) Self {
+            const id: logging.Span = tracing.span(io) catch |_err| blk: {
+                l.withError(_err).err("cannot genetare child span id");
+                break :blk @splat(0);
             };
+
+            return l.withSpanParent(l.ctx.span_id).withSpan(id);
         }
 
-        /// Creates a logger using given scope.
-        pub fn withScope(l: Self, comptime new_scope: []const u8) Logger(
-            Encoder,
-            Context,
-            (if (scope.len > 0) scope ++ new_scope else new_scope) ++ ".",
-        ) {
-            return .{
-                .mux = l.mux,
-                .w = l.w,
-                .e = l.e,
-                .level = l.level,
-                .ctx = l.ctx,
+        /// Creates a logger using a new trace identifier.
+        pub fn newTrace(l: Self, io: std.Io) Self {
+            const id: logging.Trace = tracing.trace(io) catch |_err| blk: {
+                l.withError(_err).err("cannot genetare trace id");
+                break :blk @splat(0);
             };
+
+            return l.withTrace(id).withSpanParent(null).newSpan(io);
         }
 
-        /// Creates a logger using given writer.
-        pub fn withWriter(l: Self, writer: *std.Io.Writer) Self {
+        /// Creates a logger using the given trace span identifier.
+        pub fn withSpan(l: Self, id: logging.Span) Self {
             var _l = l;
-            _l.w = writer;
+            _l.ctx.span_id = id;
+            return _l;
+        }
+
+        /// Creates a logger using the given trace span identifier as parent
+        /// span.
+        pub fn withSpanParent(l: Self, id: ?logging.Span) Self {
+            var _l = l;
+            _l.ctx.parent_id = id;
+            return _l;
+        }
+
+        /// Creates a logger using the given trace identifier.
+        pub fn withTrace(l: Self, id: logging.Trace) Self {
+            var _l = l;
+            _l.ctx.trace_id = id;
             return _l;
         }
 
@@ -295,6 +293,61 @@ pub fn Logger(
             args: anytype,
         ) void {
             l.logf(allocator, .warn, fmt, args);
+        }
+
+        // //////////////////////
+        // Logger manipulation //
+        // //////////////////////
+
+        /// Creates a logger using the given context.
+        pub fn withContext(l: Self, comptime NewContext: type) Logger(
+            Encoder,
+            NewContext,
+            scope,
+        ) {
+            return .{
+                .mux = l.mux,
+                .w = l.w,
+                .e = l.e,
+                .level = l.level,
+            };
+        }
+
+        /// Creates a logger using the given encoder.
+        pub fn withEncoder(l: Self, encoder: anytype) Logger(
+            @TypeOf(encoder),
+            Context,
+            scope,
+        ) {
+            return .{
+                .mux = l.mux,
+                .w = l.w,
+                .e = encoder,
+                .level = l.level,
+                .ctx = l.ctx,
+            };
+        }
+
+        /// Creates a logger using the given scope.
+        pub fn withScope(l: Self, comptime new_scope: []const u8) Logger(
+            Encoder,
+            Context,
+            (if (scope.len > 0) scope ++ new_scope else new_scope) ++ ".",
+        ) {
+            return .{
+                .mux = l.mux,
+                .w = l.w,
+                .e = l.e,
+                .level = l.level,
+                .ctx = l.ctx,
+            };
+        }
+
+        /// Creates a logger using the given writer.
+        pub fn withWriter(l: Self, writer: *std.Io.Writer) Self {
+            var _l = l;
+            _l.w = writer;
+            return _l;
         }
     };
 }

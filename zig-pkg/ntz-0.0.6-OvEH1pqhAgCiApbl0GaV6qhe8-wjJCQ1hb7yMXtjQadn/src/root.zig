@@ -6,6 +6,7 @@
 //! *n*ot *t*raditional *Z*ig (ntrrg's Zig libraries).
 
 pub const encoding = @import("encoding/root.zig");
+pub const id = @import("id/root.zig");
 pub const io = @import("io/root.zig");
 pub const logging = @import("logging/root.zig");
 pub const types = @import("types/root.zig");
