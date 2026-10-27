@@ -178,7 +178,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(root_lib);
 
     const exe_mod = b.createModule(.{
-        .root_source_file = b.path("exe/main.zig"),
+        .root_source_file = b.path("src/exe/mp3-cleaner/main.zig"),
         .target = target,
         .optimize = optimize,
         .link_libc = link_libc,
@@ -289,7 +289,6 @@ pub fn build(b: *std.Build) void {
     const zig_fmt = b.addFmt(.{ .paths = b.pathList(&.{
         "build.zig.zon",
         "build.zig",
-        "exe",
         "src",
         "tests",
     }) });

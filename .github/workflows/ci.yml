@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Lint
-        run: zig fmt --check --ast-check build.zig.zon build.zig exe src tests
+        run: zig fmt --check --ast-check build.zig.zon build.zig src tests
 
       - name: Build (${{ matrix.target }}-${{ matrix.optimize }})
         run: |
